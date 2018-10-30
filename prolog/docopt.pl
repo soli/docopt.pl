@@ -8,7 +8,7 @@
 
 :- use_module(
    library(optparse),
-   [opt_parse/4 as optparse]
+   [opt_parse/5 as optparse]
 ).
 
 %% opt_arguments(+OptsSpec, -Opts, -PositionalArgs)
@@ -29,7 +29,16 @@ opt_arguments(OptsSpec, Opts, PositionalArgs) :-
 % Value) options, and PositionalArgs as the remaining arguments.
 opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
    docopt_to_optparse(OptsSpec, OptparseSpec),
-   optparse(OptparseSpec, ApplArgs, Opts, PositionalArgs).
+   write(OptparseSpec),nl,
+   optparse(OptparseSpec, ApplArgs, Opts, PositionalArgs,
+      [duplicated_flags(keepall)]),
+   (
+      ground(Opts)
+   ->
+      true
+   ;
+      throw(error(instantiation_error(Opts)))
+   ).
 
 
 %%%%%
@@ -40,6 +49,8 @@ opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
 % Transform a [Docopt](http://docopt.org) help-string specification into a
 % library(optparse) specification.
 docopt_to_optparse(HelpString, OptsSpec) :-
+   nb_setval(optional, false),
+   nb_delete(progname),
    sub_string(HelpString, 0, 6, _, Usage),
    string_lower(Usage, "usage:"),
    sub_string(HelpString, 6, _, 0, NoUsage),
@@ -98,11 +109,25 @@ options_to_optparse([Head | Tail], OptionSpec) :-
 %% usage_to_optparse(+UsageString, -UsageSpec)
 %
 % translate one usage example into some optparse specs
-% FIXME ignores the grouping, alternative, multiple and optional marks
+% FIXME ignores the grouping, alternative, and multiple marks
 usage_to_optparse(UsageString, UsageSpec) :-
-   split_string(UsageString, "\s\t\r", "][)(|.", [_Prog | Usage]),
-   maplist(argument_to_optparse, Usage, Specs),
-   concat(Specs, UsageSpec).
+   split_string(UsageString, "\s\t\r", ")(|.", [Prog | Usage]),
+   (
+      nb_current(progname, ProgName)
+   ->
+      true
+   ;
+      nb_setval(progname, Prog),
+      ProgName = Prog
+   ),
+   (
+      ProgName == Prog
+   ->
+      maplist(argument_to_optparse, Usage, Specs),
+      concat(Specs, UsageSpec)
+   ;
+      UsageSpec = []
+   ).
 
 
 %% option_to_optparse(+OptionString, -OptionSpec)
@@ -122,6 +147,23 @@ option_to_optparse(OptionString, OptionSpec) :-
 %% argument_to_optparse(+Argument, -Spec)
 %
 % translate one fragment of usage into a partial spec
+argument_to_optparse("[options]", []) :-
+   !,
+   nb_setval(optional, true).
+
+argument_to_optparse(Argument, Specs) :-
+   sub_string(Argument, 0, 1, _, "["),
+   !,
+   sub_string(Argument, 1, _, 0, Arg),
+   nb_setval(optional, true),
+   argument_to_optparse(Arg, Specs).
+
+argument_to_optparse(Argument, Specs) :-
+   sub_string(Argument, _, 1, 0, "]"),
+   !,
+   sub_string(Argument, 0, _, 1, Arg),
+   argument_to_optparse(Arg, Specs),
+   nb_setval(optional, false).
 
 % Positional Arguments
 argument_to_optparse(Argument, [[pos(Argument)]]) :-
@@ -134,9 +176,16 @@ argument_to_optparse(Argument, [[pos(Argument)]]) :-
    !.
 
 % Options
-argument_to_optparse(Argument, Specs) :-
+argument_to_optparse(Argument, [Specs]) :-
    sub_string(Argument, 0, 2, _, "--"),
    !,
+   (
+      nb_getval(optional, true)
+   ->
+      Opt = [optional(true)]
+   ;
+      Opt = []
+   ),
    (
       sub_string(Argument, LOpt, 1, _, "=")
    ->
@@ -145,26 +194,30 @@ argument_to_optparse(Argument, Specs) :-
       sub_string(Argument, 2, LLOpt, _, Option),
       sub_string(Argument, LLLOpt, _, 0, Pos),
       atom_string(Atom, Option),
-      Specs = [[longflags([Atom]), pos(Pos)]]
+      Specs = [longflags([Atom]), pos(Pos) | Opt]
    ;
       sub_string(Argument, 2, _, 0, Option),
       atom_string(Atom, Option),
-      Specs = [[longflags([Atom])]]
+      Specs = [longflags([Atom]) | Opt]
    ).
 
 argument_to_optparse(Argument, Specs) :-
    sub_string(Argument, 0, 1, _, "-"),
    !,
+   (
+      nb_getval(optional, true)
+   ->
+      Opt = [optional(true)]
+   ;
+      Opt = []
+   ),
    % ignore the case where -fFILE means -f FILE
    string_chars(Argument, [_ | Chars]),
    findall(
-      [shortflags([C])],
+      [shortflags([C]) | Opt],
       member(C, Chars),
       Specs
    ).
-
-argument_to_optparse("options", []) :-
-   !.
 
 
 %% option_to_optparse_aux(+OptionString, -OptionSpec)
@@ -212,22 +265,22 @@ merge_options([], []).
 merge_options([H | T], Options) :-
    memberchk(shortflags(F) , H),
    select(O, T, Opts),
-   memberchk(shortflags(F), O),
+   selectchk(shortflags(F), O, OO),
    !,
-   append(H, O, HH),
+   append(H, OO, HH),
    merge_options([HH | Opts], Options).
 
 merge_options([H | T], Options) :-
    memberchk(longflags(F) , H),
    select(O, T, Opts),
-   memberchk(longflags(F), O),
+   selectchk(longflags(F), O, OO),
    !,
-   append(H, O, HH),
+   append(H, OO, HH),
    merge_options([HH | Opts], Options).
 
 merge_options([H | T], Options) :-
    (
-      selectchk(pos(_), H, HH)
+      delete(H, pos(_), HH)
    ->
       H1 = [type(atom) | HH]
    ;
@@ -257,7 +310,11 @@ add_positionals([], []).
 add_positionals([H], [H]).
 
 add_positionals([H, [pos(P)] | T], [HH | TT]) :-
+   !,
    append(H, [pos(P)], HH),
+   add_positionals(T, TT).
+
+add_positionals([H | T], [H | TT]) :-
    add_positionals(T, TT).
 
 
@@ -320,13 +377,18 @@ unify_types([T1, T2 | TT], T) :-
 %% add_default(+Options, -DefaultOptions)
 %
 % add a default case for typed options that do not have one already
-% FIXME Actually should only be done for optional items
-add_default(L, L) :-
+add_default(L, LL) :-
    memberchk(default(_), L),
-   !.
+   !,
+   delete(L, optional(_), LL).
 
-add_default(L, [default(false) | L]) :-
+add_default(L, [default(false) | LL]) :-
    memberchk(type(boolean), L),
+   select(optional(true), L, LL),
    !.
 
-add_default(L, [default('') | L]).
+add_default(L, [default('') | LL]) :-
+   select(optional(true), L, LL),
+   !.
+
+add_default(L, L).
