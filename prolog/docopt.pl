@@ -95,13 +95,19 @@ options_to_optparse([Head | Tail], OptionSpec) :-
    concat(Specs, OptionSpec).
 
 
-% ignore the grouping, alternative and optional marks
+%% usage_to_optparse(+UsageString, -UsageSpec)
+%
+% translate one usage example into some optparse specs
+% FIXME ignores the grouping, alternative, multiple and optional marks
 usage_to_optparse(UsageString, UsageSpec) :-
    split_string(UsageString, "\s\t\r", "][)(|.", [_Prog | Usage]),
    maplist(argument_to_optparse, Usage, Specs),
    concat(Specs, UsageSpec).
 
 
+%% option_to_optparse(+OptionString, -OptionSpec)
+%
+% translate one option description line into some optparse specs
 option_to_optparse(OptionString, OptionSpec) :-
    split_string(OptionString, "", "\s\t\r", [Chomp]),
    (
@@ -112,6 +118,10 @@ option_to_optparse(OptionString, OptionSpec) :-
       OptionSpec = []
    ).
 
+
+%% argument_to_optparse(+Argument, -Spec)
+%
+% translate one fragment of usage into a partial spec
 
 % Positional Arguments
 argument_to_optparse(Argument, [[pos(Argument)]]) :-
@@ -157,6 +167,9 @@ argument_to_optparse("options", []) :-
    !.
 
 
+%% option_to_optparse_aux(+OptionString, -OptionSpec)
+%
+% transform a line of option description starting with - to a spec
 option_to_optparse_aux(OptionString, OptionSpec) :-
    (
       sub_string(OptionString, LOpt, 2, _, "  ")
@@ -180,6 +193,9 @@ option_to_optparse_aux(OptionString, OptionSpec) :-
    ).
 
 
+%% concat(+Listoflists, -List)
+%
+% append all elements of Listoflists in List
 % no foldr in library(apply)
 concat([], []).
 
@@ -188,6 +204,9 @@ concat([H | T], Concat) :-
    concat(T, C).
 
 
+%% merge_options(+Options, -MergedOptions)
+%
+% merge options coming from different usage cases or descriptions
 merge_options([], []).
 
 merge_options([H | T], Options) :-
@@ -230,6 +249,9 @@ merge_options([H | T], Options) :-
    merge_options(T, Opts).
 
 
+%% add_positionals(+Options, -PosOptions)
+%
+% add following positional arguments to the preceding option in Options
 add_positionals([], []).
 
 add_positionals([H], [H]).
@@ -239,6 +261,9 @@ add_positionals([H, [pos(P)] | T], [HH | TT]) :-
    add_positionals(T, TT).
 
 
+%% find_default(+DescrString, -Default)
+%
+% look for a default definition in a line of description
 find_default(DescrString, Default) :-
    sub_string(DescrString, _, 9, Def, DefMarker),
    string_lower(DefMarker, "[default:"),
@@ -256,6 +281,9 @@ find_default(DescrString, Default) :-
    ).
 
 
+%% merge_types(+Options, -MergedOptions)
+%
+% merge compatible types found from different usage cases or descriptions
 merge_types(L, [T | LL]) :-
    findall(
       T,
@@ -266,6 +294,9 @@ merge_types(L, [T | LL]) :-
    unify_types(Types, T), !.
 
 
+%% unify_types(+Types, -UnifiedTypes)
+%
+% merge similar type descriptions, or atom and float into float
 unify_types([], type(atom)).
 
 unify_types([T], type(T)).
@@ -286,6 +317,10 @@ unify_types([T1, T2 | TT], T) :-
    ).
 
 
+%% add_default(+Options, -DefaultOptions)
+%
+% add a default case for typed options that do not have one already
+% FIXME Actually should only be done for optional items
 add_default(L, L) :-
    memberchk(default(_), L),
    !.
