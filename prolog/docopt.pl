@@ -58,8 +58,7 @@ docopt_to_optparse(HelpString, OptsSpec) :-
    options_to_optparse(OptionDescriptions, OptionSpec),
    append(UsageSpec, OptionSpec, AllOptsSpec),
    % add option names opt(name), arguments, merge descriptions
-   merge_options(AllOptsSpec, OptsSpec),
-   write(OptsSpec),nl.
+   merge_options(AllOptsSpec, OptsSpec).
 
 
 %% usages_to_optparse(+UsagePatterns, -UsageSpec)
@@ -74,8 +73,14 @@ usages_to_optparse(UsagePatterns, UsageSpec) :-
 %% options_to_optparse(+OptionDescriptions, -OptionSpec)
 %
 % Gets optparse spec from a list of option descriptions
-options_to_optparse(OptionDescriptions, OptionSpec) :-
-   OptionDescriptions = [Head | Tail],
+options_to_optparse([], []).
+
+options_to_optparse([H | T], Spec) :-
+   split_string(H, "", "\s\t\r", [""]),
+   !,
+   options_to_optparse(T, Spec).
+
+options_to_optparse([Head | Tail], OptionSpec) :-
    (
       string_lower(Head, "options:")
    ->
@@ -125,12 +130,16 @@ argument_to_optparse(Argument, Specs) :-
    (
       sub_string(Argument, LOpt, 1, _, "=")
    ->
-      sub_string(Argument, 2, LOpt - 2, _, Option),
-      sub_string(Argument, LOpt + 1, _, 0, Pos),
-      Specs = [[longflags([Option]), pos(Pos)]]
+      LLOpt is LOpt - 2,
+      LLLOpt is LOpt + 1,
+      sub_string(Argument, 2, LLOpt, _, Option),
+      sub_string(Argument, LLLOpt, _, 0, Pos),
+      atom_string(Atom, Option),
+      Specs = [[longflags([Atom]), pos(Pos)]]
    ;
       sub_string(Argument, 2, _, 0, Option),
-      Specs = [[longflags([Option])]]
+      atom_string(Atom, Option),
+      Specs = [[longflags([Atom])]]
    ).
 
 argument_to_optparse(Argument, Specs) :-
@@ -139,11 +148,8 @@ argument_to_optparse(Argument, Specs) :-
    % ignore the case where -fFILE means -f FILE
    string_chars(Argument, [_ | Chars]),
    findall(
-      [shortflags([Option])],
-      (
-         member(C, Chars),
-         atom_string(C, Option)
-      ),
+      [shortflags([C])],
+      member(C, Chars),
       Specs
    ).
 
@@ -151,17 +157,27 @@ argument_to_optparse("options", []) :-
    !.
 
 
-option_to_optparse_aux(OptionString, [OptionSpec]) :-
+option_to_optparse_aux(OptionString, OptionSpec) :-
    (
       sub_string(OptionString, LOpt, 2, _, "  ")
    ->
-      sub_string(OptionString, 0, LOpt, _, Options)
+      sub_string(OptionString, 0, LOpt, _, Options),
+      LLOpt is LOpt + 2,
+      sub_string(OptionString, LLOpt, _, 0, Descr)
    ;
-      Options = OptionString
+      Options = OptionString,
+      Descr = ""
    ),
    split_string(Options, "\s\t\r,", "\s\t\r,", OptionList),
    maplist(argument_to_optparse, OptionList, Specs),
-   flatten(Specs, OptionSpec).
+   flatten(Specs, OptSpec),
+   (
+      find_default(Descr, [Default1, Default2])
+   ->
+      OptionSpec = [[Default1, Default2 | OptSpec]]
+   ;
+      OptionSpec = [OptSpec]
+   ).
 
 
 % no foldr in library(apply)
@@ -192,12 +208,14 @@ merge_options([H | T], Options) :-
 
 merge_options([H | T], Options) :-
    (
-      memberchk(pos(_), H)
+      selectchk(pos(_), H, HH)
    ->
-      H1 = [type(atom) | H]
+      H1 = [type(atom) | HH]
    ;
       H1 = [type(boolean) | H]
    ),
+   merge_types(H1, H2),
+   add_default(H2, H3),
    (
       (
          memberchk(longflags([Name]), H)
@@ -205,9 +223,9 @@ merge_options([H | T], Options) :-
          memberchk(shortflags([Name]), H)
       )
    ->
-      Options = [[opt(Name) | H1] | Opts]
+      Options = [[opt(Name) | H3] | Opts]
    ;
-      Options = [H1 | Opts]
+      Options = [H3 | Opts]
    ),
    merge_options(T, Opts).
 
@@ -219,3 +237,61 @@ add_positionals([H], [H]).
 add_positionals([H, [pos(P)] | T], [HH | TT]) :-
    append(H, [pos(P)], HH),
    add_positionals(T, TT).
+
+
+find_default(DescrString, Default) :-
+   sub_string(DescrString, _, 9, Def, DefMarker),
+   string_lower(DefMarker, "[default:"),
+   sub_string(DescrString, _, Def, 0, DefString),
+   sub_string(DefString, Bef, 1, _, "]"),
+   sub_string(DefString, 0, Bef, _, DefValue),
+   split_string(DefValue, "", "\s\t\r", [Chomp]),
+   (
+      number_string(Number, Chomp)
+   ->
+      Default = [type(float), default(Number)]
+   ;
+      atom_string(Atom, Chomp),
+      Default = [type(atom), default(Atom)]
+   ).
+
+
+merge_types(L, [T | LL]) :-
+   findall(
+      T,
+      member(type(T), L),
+      Types
+   ),
+   delete(L, type(_), LL),
+   unify_types(Types, T), !.
+
+
+unify_types([], type(atom)).
+
+unify_types([T], type(T)).
+
+unify_types([T1, T2 | TT], T) :-
+   (
+      T1 == T2
+   ->
+      unify_types([T1 | TT], T)
+   ;
+      (
+         T1 == atom, T2 == float
+      ;
+         T1 == float, T2 == atom
+      )
+   ->
+      unify_types([float | TT], T)
+   ).
+
+
+add_default(L, L) :-
+   memberchk(default(_), L),
+   !.
+
+add_default(L, [default(false) | L]) :-
+   memberchk(type(boolean), L),
+   !.
+
+add_default(L, [default('') | L]).
