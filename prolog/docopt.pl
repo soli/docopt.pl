@@ -10,7 +10,9 @@
    library(optparse),
    [opt_parse/5 as optparse]
 ).
+% for tests
 :- use_module(library(plunit)).
+:- use_module(library(http/json)).
 
 
 %% opt_arguments(+OptsSpec, -Opts, -PositionalArgs) is det
@@ -122,7 +124,11 @@ options_to_optparse([Head | Tail], OptionSpec) :-
 % translate one usage example into some optparse specs
 % FIXME ignores the grouping, alternative, and multiple marks
 usage_to_optparse(UsageString, UsageSpec) :-
-   split_string(UsageString, "\s\t\r", ")(|.", [Prog | Usage]),
+   split_string(UsageString, ".|()", "", Strings),
+   maplist(atom_string, Atoms, Strings),
+   atomic_list_concat(Atoms, ' ', CleanUsageAtom),
+   atom_string(CleanUsageAtom, CleanUsageString),
+   split_string(CleanUsageString, "\s\t\r", "\s\t\r", [Prog | Usage]),
    (
       nb_current(progname, ProgName)
    ->
@@ -158,6 +164,9 @@ option_to_optparse(OptionString, OptionSpec) :-
 %% argument_to_optparse(+Argument, -Spec) is det
 %
 % translate one fragment of usage into a partial spec
+argument_to_optparse("", []) :-
+   !.
+
 argument_to_optparse("[options]", []) :-
    !,
    nb_setval(optional, true).
@@ -458,7 +467,9 @@ testcase_to_io(String, (Input, Output)) :-
    sub_string(String, 4, _, 0, NoProg),
    split_string(NoProg, '\n', '\s\t\r', [InputString | RemainderList]),
    maplist(atom_string, RemainderAtoms, RemainderList),
-   atomic_list_concat(RemainderAtoms, ' ', Output),
+   atomic_list_concat(RemainderAtoms, ' ', OutputAtom),
+   atom_json_term(OutputAtom, JsonOutput, [null(''), true(true), false(false)]),
+   json_to_output(JsonOutput, Output),
    split_string(InputString, '\s\t\r', '\s\t\r', InputStrings),
    (
       InputStrings == [""]
@@ -469,37 +480,48 @@ testcase_to_io(String, (Input, Output)) :-
    ).
 
 
-output_to_dict_atom(L, A) :-
-   maplist(mapping_to_element, L, E),
-   atomic_list_concat(E, ', ', Elts),
-   format(atom(A), '{~w}', [Elts]).
+json_to_output(json(L), Output) :-
+   !,
+   maplist(equal_to_functor, L, UnsortedOutput),
+   sort(UnsortedOutput, Output).
+
+json_to_output(S, S).
 
 
-mapping_to_element(Term, Elt) :-
-   Term =.. [Name, Value],
+equal_to_functor(Name = Value, Term) :-
    (
-      string_length(Name, 1)
+      sub_atom(Name, 0, 2, _, '--')
    ->
-      format(atom(NameThing), '"-~w"', [Name])
+      sub_atom(Name, 2, _, 0, Functor)
    ;
-      format(atom(NameThing), '"--~w"', [Name])
+      sub_atom(Name, 0, 1, _, '-')
+   ->
+      sub_atom(Name, 1, _, 0, Functor)
+   ;
+      Functor = Name
    ),
    (
-      memberchk(Value, [true, false])
+      is_list(Value)
    ->
-      ValueThing = Value
+      sort(Value, Argument)
    ;
-      number(Value)
-   ->
-      ValueThing = Value
-   ;
-      Value = ''
-   ->
-      ValueThing = null
-   ;
-      format(atom(ValueThing), '"~w"', [Value])
+      Argument = Value
    ),
-   format(atom(Elt), '~w: ~w', [NameThing, ValueThing]).
+   Term =.. [Functor, Argument].
+
+
+map_to_functor(MapString, Term) :-
+   split_string(MapString, ":", "\s\t\r\"", [Func, Arg]),
+   (
+      Arg == "null"
+   ->
+      Argument = ''
+   ;
+      atom_string(Argument, Arg)
+   ),
+   split_string(Func, "", "-", [NoDashFunc]),
+   atom_string(Functor, NoDashFunc),
+   Term =.. [Functor, Argument].
 
 
 test(
@@ -511,11 +533,11 @@ test(
    catch(
       (
          opt_parse(Spec, Input, OutputList, []),
-         output_to_dict_atom(OutputList, Output)
+         sort(OutputList, Output)
       ),
       _Error,
       (
-         Output = '"user-error"'
+         Output = 'user-error'
       )
    ).
 
