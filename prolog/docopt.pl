@@ -30,13 +30,14 @@ opt_arguments(OptsSpec, Opts, PositionalArgs) :-
 % Value) options, and PositionalArgs as the remaining arguments.
 opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
    docopt_to_optparse(OptsSpec, OptparseSpec),
+   split_single_dashes(ApplArgs, OptparseSpec, SplitArgs),
    % opt_parse writes some stuff on stderr when it fails parsing
    % current_stream(2, write, UserError),
    % open_null_stream(Null),
    % setup_call_cleanup(
    %    set_stream(Null, alias(user_error)),
       optparse(
-         OptparseSpec, ApplArgs, Opts, PositionalArgs,
+         OptparseSpec, SplitArgs, Opts, PositionalArgs,
          [duplicated_flags(keepall)]
       ),
       % set_stream(UserError, alias(user_error))
@@ -61,9 +62,11 @@ opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
 docopt_to_optparse(HelpString, OptsSpec) :-
    nb_setval(optional, false),
    nb_delete(progname),
-   sub_string(HelpString, 0, 6, _, Usage),
+   sub_string(HelpString, Before, 6, _, Usage),
    string_lower(Usage, "usage:"),
-   sub_string(HelpString, 6, _, 0, NoUsage),
+   !,
+   After is Before + 6,
+   sub_string(HelpString, After, _, 0, NoUsage),
    split_string(NoUsage, "\n", "\s\t", HelpLines),
    (
       memberchk("", HelpLines),
@@ -326,7 +329,8 @@ merge_options([H | T], Options) :-
 % add following positional arguments to the preceding option in Options
 add_positionals([], []).
 
-add_positionals([H], [H]).
+add_positionals([H], [H]) :-
+   !.
 
 add_positionals([H, [pos(P)] | T], [HH | TT]) :-
    !,
@@ -441,6 +445,44 @@ unambiguous(Atom, Opts, []) :-
 unambiguous(Atom, Opts, [Atom | L]) :-
    sub_atom(Atom, 0, _, 1, Prefix),
    unambiguous(Prefix, Opts, L).
+
+
+split_single_dashes([], _, []).
+
+split_single_dashes([H | T], OptparseSpec, SplitArgs) :-
+   atom_chars(H, Chars),
+   (
+      Chars = ['-' | Options],
+      Options = [C, _ | _],
+      C \= '-'
+   ->
+      split_options(Options, OptparseSpec, Args),
+      append(Args, OtherArgs, SplitArgs)
+   ;
+      SplitArgs = [H | OtherArgs]
+   ),
+   split_single_dashes(T, OptparseSpec, OtherArgs).
+
+
+split_options([], _, []).
+
+split_options([H], _, [A]) :-
+   format(atom(A), '-~w', [H]).
+
+split_options([H1, H2 | T], OptparseSpec, Args) :-
+   (
+      member(Option, OptparseSpec),
+      member(shortflags(L), Option),
+      member(H2, L)
+   ->
+      format(atom(A), '-~w', [H1]),
+      Args = [A | OtherArgs],
+      split_options([H2 | T], OptparseSpec, OtherArgs)
+   ;
+      atomic_list_concat([H1, H2 | T], '', O),
+      format(atom(A), '-~w', [O]),
+      Args = [A]
+   ).
 
 
 %%%%%
