@@ -10,8 +10,10 @@
    library(optparse),
    [opt_parse/5 as optparse]
 ).
+:- use_module(library(plunit)).
 
-%% opt_arguments(+OptsSpec, -Opts, -PositionalArgs)
+
+%% opt_arguments(+OptsSpec, -Opts, -PositionalArgs) is det
 %
 % Extract commandline options according to a [Docopt](http://docopt.org)
 % specification.
@@ -22,16 +24,25 @@ opt_arguments(OptsSpec, Opts, PositionalArgs) :-
    opt_parse(OptsSpec, Args, Opts, PositionalArgs).
 
 
-%% opt_parse(+OptsSpec, +ApplArgs, -Opts, -PositionalArgs)
+%% opt_parse(+OptsSpec, +ApplArgs, -Opts, -PositionalArgs) is det
 %
 % Parse arguments ApplArgs according to [Docopt](http://docopt.org) spec
 % OptsSpec. As in library(optparse), returns Opts as a list of Func(Key,
 % Value) options, and PositionalArgs as the remaining arguments.
 opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
    docopt_to_optparse(OptsSpec, OptparseSpec),
-   write(OptparseSpec),nl,
-   optparse(OptparseSpec, ApplArgs, Opts, PositionalArgs,
-      [duplicated_flags(keepall)]),
+   % opt_parse writes some stuff on stderr when it fails parsing
+   % current_stream(2, write, UserError),
+   % open_null_stream(Null),
+   % setup_call_cleanup(
+   %    set_stream(Null, alias(user_error)),
+      optparse(
+         OptparseSpec, ApplArgs, Opts, PositionalArgs,
+         [duplicated_flags(keepall)]
+      ),
+      % set_stream(UserError, alias(user_error))
+   % ),
+   !,
    (
       ground(Opts)
    ->
@@ -44,7 +55,7 @@ opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
 %%%%%
 
 
-%% docopt_to_optparse(+HelpString, -OptsSpec)
+%% docopt_to_optparse(+HelpString, -OptsSpec) is det
 %
 % Transform a [Docopt](http://docopt.org) help-string specification into a
 % library(optparse) specification.
@@ -72,7 +83,7 @@ docopt_to_optparse(HelpString, OptsSpec) :-
    merge_options(AllOptsSpec, OptsSpec).
 
 
-%% usages_to_optparse(+UsagePatterns, -UsageSpec)
+%% usages_to_optparse(+UsagePatterns, -UsageSpec) is det
 %
 % Gets optparse spec from a list of usage patterns
 usages_to_optparse(UsagePatterns, UsageSpec) :-
@@ -81,7 +92,7 @@ usages_to_optparse(UsagePatterns, UsageSpec) :-
    add_positionals(Usage, UsageSpec).
 
 
-%% options_to_optparse(+OptionDescriptions, -OptionSpec)
+%% options_to_optparse(+OptionDescriptions, -OptionSpec) is det
 %
 % Gets optparse spec from a list of option descriptions
 options_to_optparse([], []).
@@ -106,7 +117,7 @@ options_to_optparse([Head | Tail], OptionSpec) :-
    concat(Specs, OptionSpec).
 
 
-%% usage_to_optparse(+UsageString, -UsageSpec)
+%% usage_to_optparse(+UsageString, -UsageSpec) is det
 %
 % translate one usage example into some optparse specs
 % FIXME ignores the grouping, alternative, and multiple marks
@@ -130,7 +141,7 @@ usage_to_optparse(UsageString, UsageSpec) :-
    ).
 
 
-%% option_to_optparse(+OptionString, -OptionSpec)
+%% option_to_optparse(+OptionString, -OptionSpec) is det
 %
 % translate one option description line into some optparse specs
 option_to_optparse(OptionString, OptionSpec) :-
@@ -144,7 +155,7 @@ option_to_optparse(OptionString, OptionSpec) :-
    ).
 
 
-%% argument_to_optparse(+Argument, -Spec)
+%% argument_to_optparse(+Argument, -Spec) is det
 %
 % translate one fragment of usage into a partial spec
 argument_to_optparse("[options]", []) :-
@@ -220,7 +231,7 @@ argument_to_optparse(Argument, Specs) :-
    ).
 
 
-%% option_to_optparse_aux(+OptionString, -OptionSpec)
+%% option_to_optparse_aux(+OptionString, -OptionSpec) is det
 %
 % transform a line of option description starting with - to a spec
 option_to_optparse_aux(OptionString, OptionSpec) :-
@@ -246,7 +257,7 @@ option_to_optparse_aux(OptionString, OptionSpec) :-
    ).
 
 
-%% concat(+Listoflists, -List)
+%% concat(+Listoflists, -List) is det
 %
 % append all elements of Listoflists in List
 % no foldr in library(apply)
@@ -257,7 +268,7 @@ concat([H | T], Concat) :-
    concat(T, C).
 
 
-%% merge_options(+Options, -MergedOptions)
+%% merge_options(+Options, -MergedOptions) is det
 %
 % merge options coming from different usage cases or descriptions
 merge_options([], []).
@@ -280,8 +291,9 @@ merge_options([H | T], Options) :-
 
 merge_options([H | T], Options) :-
    (
-      delete(H, pos(_), HH)
+      memberchk(pos(_), H)
    ->
+      delete(H, pos(_), HH),
       H1 = [type(atom) | HH]
    ;
       H1 = [type(boolean) | H]
@@ -302,7 +314,7 @@ merge_options([H | T], Options) :-
    merge_options(T, Opts).
 
 
-%% add_positionals(+Options, -PosOptions)
+%% add_positionals(+Options, -PosOptions) is det
 %
 % add following positional arguments to the preceding option in Options
 add_positionals([], []).
@@ -318,7 +330,7 @@ add_positionals([H | T], [H | TT]) :-
    add_positionals(T, TT).
 
 
-%% find_default(+DescrString, -Default)
+%% find_default(+DescrString, -Default) is det
 %
 % look for a default definition in a line of description
 find_default(DescrString, Default) :-
@@ -338,7 +350,7 @@ find_default(DescrString, Default) :-
    ).
 
 
-%% merge_types(+Options, -MergedOptions)
+%% merge_types(+Options, -MergedOptions) is det
 %
 % merge compatible types found from different usage cases or descriptions
 merge_types(L, [T | LL]) :-
@@ -351,7 +363,7 @@ merge_types(L, [T | LL]) :-
    unify_types(Types, T), !.
 
 
-%% unify_types(+Types, -UnifiedTypes)
+%% unify_types(+Types, -UnifiedTypes) is det
 %
 % merge similar type descriptions, or atom and float into float
 unify_types([], type(atom)).
@@ -374,21 +386,138 @@ unify_types([T1, T2 | TT], T) :-
    ).
 
 
-%% add_default(+Options, -DefaultOptions)
+%% add_default(+Options, -DefaultOptions) is det
 %
 % add a default case for typed options that do not have one already
 add_default(L, LL) :-
    memberchk(default(_), L),
    !,
-   delete(L, optional(_), LL).
+   delete(L, optional(true), LL).
 
 add_default(L, [default(false) | LL]) :-
    memberchk(type(boolean), L),
-   select(optional(true), L, LL),
-   !.
+   memberchk(optional(true), L),
+   !,
+   delete(L, optional(true), LL).
 
 add_default(L, [default('') | LL]) :-
-   select(optional(true), L, LL),
-   !.
+   select(optional(true), L, _),
+   !,
+   delete(L, optional(true), LL).
 
 add_default(L, L).
+
+
+%%%%%
+
+:- begin_tests('testcases.docopt', [setup(get_tests_from_file)]).
+
+
+:- dynamic(testcase/3).
+
+
+get_tests_from_file :-
+   retractall(testcase(_, _, _)),
+   module_property(docopt, file(File)),
+   file_directory_name(File, Directory),
+   absolute_file_name('testcases.docopt', TestFile, [relative_to(Directory)]),
+   open(TestFile, read, Tests),
+   read_stream_to_codes(Tests, Codes),
+   close(Tests),
+   string_codes(String, Codes),
+   split_by_substring(String ,'r"""', '\s\n\r\t', [_ | Usages]),
+   maplist(usage_to_test, Usages).
+
+
+usage_to_test(Usage) :-
+   split_by_substring(Usage, '"""', '\s\r\n\t', [Spec, Cases]),
+   split_by_substring(Cases, '$', '\s\r\n\t', [_ | TestCases]),
+   maplist(testcase_to_io, TestCases, InputOutput),
+   forall(
+      member((Input, Output), InputOutput),
+      assertz(testcase(Spec, Input, Output))
+   ).
+
+
+split_by_substring(String, Substring, Padding, List) :-
+   (
+      sub_string(String, Before, Len, _, Substring)
+   ->
+      sub_string(String, 0, Before, _, S1),
+      split_string(S1, "", Padding, [S2]),
+      New is Before + Len,
+      List = [S2 | L],
+      sub_string(String, New, _, 0, NewString),
+      split_by_substring(NewString, Substring, Padding, L)
+   ;
+      split_string(String, "", Padding, List)
+   ).
+
+
+testcase_to_io(String, (Input, Output)) :-
+   sub_string(String, 4, _, 0, NoProg),
+   split_string(NoProg, '\n', '\s\t\r', [InputString | RemainderList]),
+   maplist(atom_string, RemainderAtoms, RemainderList),
+   atomic_list_concat(RemainderAtoms, ' ', Output),
+   split_string(InputString, '\s\t\r', '\s\t\r', InputStrings),
+   (
+      InputStrings == [""]
+   ->
+      Input = []
+   ;
+      maplist(atom_string, Input, InputStrings)
+   ).
+
+
+output_to_dict_atom(L, A) :-
+   maplist(mapping_to_element, L, E),
+   atomic_list_concat(E, ', ', Elts),
+   format(atom(A), '{~w}', [Elts]).
+
+
+mapping_to_element(Term, Elt) :-
+   Term =.. [Name, Value],
+   (
+      string_length(Name, 1)
+   ->
+      format(atom(NameThing), '"-~w"', [Name])
+   ;
+      format(atom(NameThing), '"--~w"', [Name])
+   ),
+   (
+      memberchk(Value, [true, false])
+   ->
+      ValueThing = Value
+   ;
+      number(Value)
+   ->
+      ValueThing = Value
+   ;
+      Value = ''
+   ->
+      ValueThing = null
+   ;
+      format(atom(ValueThing), '"~w"', [Value])
+   ),
+   format(atom(Elt), '~w: ~w', [NameThing, ValueThing]).
+
+
+test(
+   'testcases.docopt',
+   [
+      forall(testcase(Spec, Input, Expected)),
+      true(Output == Expected)
+   ]) :-
+   catch(
+      (
+         opt_parse(Spec, Input, OutputList, []),
+         output_to_dict_atom(OutputList, Output)
+      ),
+      _Error,
+      (
+         Output = '"user-error"'
+      )
+   ).
+
+
+:- end_tests('testcases.docopt').
