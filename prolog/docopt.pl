@@ -439,7 +439,7 @@ add_default(L, [default(false) | LL]) :-
    delete(L, optional(true), LL).
 
 add_default(L, [default('') | LL]) :-
-   select(optional(true), L, _),
+   memberchk(optional(true), L),
    !,
    delete(L, optional(true), LL).
 
