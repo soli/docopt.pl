@@ -37,18 +37,19 @@ opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
    % setup_call_cleanup(
    %    set_stream(Null, alias(user_error)),
       optparse(
-         OptparseSpec, SplitArgs, Opts, PositionalArgs,
-         [duplicated_flags(keepall)]
+         OptparseSpec, SplitArgs, AOpts, PositionalArgs,
+         [duplicated_flags(keepall), output_functor('-')]
       ),
       % set_stream(UserError, alias(user_error))
    % ),
    !,
    (
-      ground(Opts)
+      ground(AOpts)
    ->
-      true
+      keysort(AOpts, SOpts),
+      count_options(SOpts, Opts)
    ;
-      throw(error(instantiation_error(Opts)))
+      throw(error(instantiation_error(AOpts)))
    ).
 
 
@@ -120,7 +121,8 @@ usages_to_optparse(UsagePatterns, UsageSpec) :-
 %% options_to_optparse(+OptionDescriptions, -OptionSpec) is det
 %
 % Gets optparse spec from a list of option descriptions
-options_to_optparse([], []).
+options_to_optparse([], []) :-
+   !.
 
 options_to_optparse([H | T], Spec) :-
    split_string(H, "", "\s\t\r", [""]),
@@ -450,8 +452,9 @@ add_unambiguous_longflags([H | T], Opts, [HH | TT]) :-
    selectchk(longflags([F]), H, H1),
    !,
    selectchk(H, Opts, OOpts),
-   unambiguous(F, OOpts, L),
-   HH = [longflags(L) | H1],
+   sub_atom(F, 0, _, 1, Prefix),
+   unambiguous(Prefix, OOpts, L),
+   HH = [longflags([F | L]) | H1],
    add_unambiguous_longflags(T, Opts, TT).
 
 add_unambiguous_longflags([H | T], Opts, [H | TT]) :-
@@ -508,6 +511,26 @@ split_options([H1, H2 | T], OptparseSpec, Args) :-
       format(atom(A), '-~w', [O]),
       Args = [A]
    ).
+
+
+count_options([], []).
+
+count_options([H-true | T], [H-Count | TTT]) :-
+   !,
+   length([_ | T], N),
+   delete(T, H-true, TT),
+   length(TT, NN),
+   (
+      N - NN > 1
+   ->
+      Count is N - NN
+   ;
+      Count=true
+   ),
+   count_options(TT, TTT).
+
+count_options([H | T], [H | TT]) :-
+   count_options(T, TT).
 
 
 %%%%%
@@ -579,22 +602,22 @@ testcase_to_io(String, (Input, Output)) :-
 json_to_output(json(L), Output) :-
    !,
    maplist(equal_to_functor, L, UnsortedOutput),
-   sort(UnsortedOutput, Output).
+   keysort(UnsortedOutput, Output).
 
 json_to_output(S, S).
 
 
-equal_to_functor(Name = Value, Term) :-
+equal_to_functor(Name = Value, Key - Argument) :-
    (
       sub_atom(Name, 0, 2, _, '--')
    ->
-      sub_atom(Name, 2, _, 0, Functor)
+      sub_atom(Name, 2, _, 0, Key)
    ;
       sub_atom(Name, 0, 1, _, '-')
    ->
-      sub_atom(Name, 1, _, 0, Functor)
+      sub_atom(Name, 1, _, 0, Key)
    ;
-      Functor = Name
+      Key = Name
    ),
    (
       is_list(Value)
@@ -602,22 +625,7 @@ equal_to_functor(Name = Value, Term) :-
       sort(Value, Argument)
    ;
       Argument = Value
-   ),
-   Term =.. [Functor, Argument].
-
-
-map_to_functor(MapString, Term) :-
-   split_string(MapString, ":", "\s\t\r\"", [Func, Arg]),
-   (
-      Arg == "null"
-   ->
-      Argument = ''
-   ;
-      atom_string(Argument, Arg)
-   ),
-   split_string(Func, "", "-", [NoDashFunc]),
-   atom_string(Functor, NoDashFunc),
-   Term =.. [Functor, Argument].
+   ).
 
 
 test(
@@ -627,10 +635,7 @@ test(
       true(Output == Expected)
    ]) :-
    catch(
-      (
-         opt_parse(Spec, Input, OutputList, []),
-         sort(OutputList, Output)
-      ),
+      opt_parse(Spec, Input, Output, []),
       _Error,
       (
          Output = 'user-error'
