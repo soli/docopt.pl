@@ -60,8 +60,8 @@ opt_parse(OptsSpec, ApplArgs, Opts, PositionalArgs) :-
 % Transform a [Docopt](http://docopt.org) help-string specification into a
 % library(optparse) specification.
 docopt_to_optparse(HelpString, OptsSpec) :-
-   nb_setval(optional, false),
    nb_delete(progname),
+   nb_setval(all_optional, false),
    sub_string(HelpString, Before, 6, _, Usage),
    string_lower(Usage, "usage:"),
    !,
@@ -69,16 +69,38 @@ docopt_to_optparse(HelpString, OptsSpec) :-
    sub_string(HelpString, After, _, 0, NoUsage),
    split_string(NoUsage, "\n", "\s\t", HelpLines),
    (
-      memberchk("", HelpLines),
+      HelpLines = ["" | HelpLines2]
+   ->
+      true
+   ;
+      HelpLines2 = HelpLines
+   ),
+   (
+      memberchk("", HelpLines2),
       append(UsagePatterns, [""], Start),
-      append(Start, OptionDescriptions, HelpLines)
+      append(Start, OptionDescriptions, HelpLines2)
    ->
       true
    ;
       OptionDescriptions = [],
-      UsagePatterns = HelpLines
+      UsagePatterns = HelpLines2
+   ),
+   (
+      length(UsagePatterns, N),
+      N > 1
+   ->
+      nb_setval(optional, true)
+   ;
+      nb_setval(optional, false)
    ),
    usages_to_optparse(UsagePatterns, UsageSpec),
+   (
+      nb_current(all_optional, true)
+   ->
+      nb_setval(optional, true)
+   ;
+      nb_setval(optional, false)
+   ),
    options_to_optparse(OptionDescriptions, OptionSpec),
    append(UsageSpec, OptionSpec, AllOptsSpec),
    % add option names opt(name), arguments, merge descriptions
@@ -116,8 +138,11 @@ options_to_optparse([Head | Tail], OptionSpec) :-
       sub_string(Head, 8, _, 0, NoOptions),
       Descriptions = [NoOptions | Tail]
    ),
+   !,
    maplist(option_to_optparse, Descriptions, Specs),
    concat(Specs, OptionSpec).
+
+options_to_optparse(_, []).
 
 
 %% usage_to_optparse(+UsageString, -UsageSpec) is det
@@ -170,7 +195,7 @@ argument_to_optparse("", []) :-
 
 argument_to_optparse("[options]", []) :-
    !,
-   nb_setval(optional, true).
+   nb_setval(all_optional, true).
 
 argument_to_optparse(Argument, Specs) :-
    sub_string(Argument, 0, 1, _, "["),
