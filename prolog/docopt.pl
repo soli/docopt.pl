@@ -10,9 +10,6 @@
    library(optparse),
    [opt_parse/5 as optparse]
 ).
-% for tests
-:- use_module(library(plunit)).
-:- use_module(library(http/json)).
 
 
 %% opt_arguments(+OptsSpec, -Opts, -PositionalArgs) is det
@@ -82,7 +79,8 @@ docopt_to_optparse(HelpString, OptsSpec) :-
    options_to_optparse(OptionDescriptions, OptionSpec),
    append(UsageSpec, OptionSpec, AllOptsSpec),
    % add option names opt(name), arguments, merge descriptions
-   merge_options(AllOptsSpec, OptsSpec).
+   merge_options(AllOptsSpec, OptsSpec1),
+   add_unambiguous_longflags(OptsSpec1, OptsSpec1, OptsSpec).
 
 
 %% usages_to_optparse(+UsagePatterns, -UsageSpec) is det
@@ -417,9 +415,40 @@ add_default(L, [default('') | LL]) :-
 add_default(L, L).
 
 
+add_unambiguous_longflags([], _, []).
+
+add_unambiguous_longflags([H | T], Opts, [HH | TT]) :-
+   selectchk(longflags([F]), H, H1),
+   !,
+   selectchk(H, Opts, OOpts),
+   unambiguous(F, OOpts, L),
+   HH = [longflags(L) | H1],
+   add_unambiguous_longflags(T, Opts, TT).
+
+add_unambiguous_longflags([H | T], Opts, [H | TT]) :-
+   add_unambiguous_longflags(T, Opts, TT).
+
+
+unambiguous('', _, []) :-
+   !.
+
+unambiguous(Atom, Opts, []) :-
+   member(O, Opts),
+   member(longflags([F]), O),
+   sub_atom(F, 0, _, _, Atom),
+   !.
+
+unambiguous(Atom, Opts, [Atom | L]) :-
+   sub_atom(Atom, 0, _, 1, Prefix),
+   unambiguous(Prefix, Opts, L).
+
+
 %%%%%
 
+% :- set_test_options([load(never)]).
 :- begin_tests('testcases.docopt', [setup(get_tests_from_file)]).
+:- use_module(library(plunit)).
+:- use_module(library(http/json)).
 
 
 :- dynamic(testcase/3).
